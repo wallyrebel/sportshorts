@@ -4,6 +4,17 @@ on:
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run in dry-run mode"
+        required: false
+        default: false
+        type: boolean
+      max_items:
+        description: "Max new items to process (0 = unlimited)"
+        required: false
+        default: "0"
+        type: string
 
 jobs:
   build-shorts:
@@ -52,7 +63,20 @@ jobs:
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
           EMAIL_MODE: ${{ secrets.EMAIL_MODE }}
           ALWAYS_EMAIL: ${{ secrets.ALWAYS_EMAIL }}
-        run: python -m app.run
+          MAX_RECENT_PER_FEED: ${{ secrets.MAX_RECENT_PER_FEED }}
+          MANUAL_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+          MANUAL_MAX_ITEMS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.max_items || '0' }}
+        shell: bash
+        run: |
+          cmd="python -m app.run"
+          if [ "$MANUAL_DRY_RUN" = "true" ]; then
+            cmd="$cmd --dry-run"
+          fi
+          if [ -n "$MANUAL_MAX_ITEMS" ] && [ "$MANUAL_MAX_ITEMS" != "0" ]; then
+            cmd="$cmd --max-items $MANUAL_MAX_ITEMS"
+          fi
+          echo "Running: $cmd"
+          eval "$cmd"
 
       - name: Add job summary
         if: always()
@@ -92,4 +116,3 @@ jobs:
           else
             echo "run_summary.json was not found." >> "$GITHUB_STEP_SUMMARY"
           fi
-

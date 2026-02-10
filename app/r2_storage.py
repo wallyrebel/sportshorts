@@ -70,6 +70,16 @@ class R2Storage:
             ExpiresIn=expires_seconds,
         )
 
+    def object_exists(self, key: str) -> bool:
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return False
+            raise
+
     def list_objects(self, prefix: str) -> list[dict[str, Any]]:
         paginator = self.s3.get_paginator("list_objects_v2")
         results: list[dict[str, Any]] = []
@@ -104,4 +114,3 @@ class R2Storage:
         if deleted:
             LOGGER.info("Deleted %s old R2 objects older than %s days", deleted, retention_days)
         return deleted
-

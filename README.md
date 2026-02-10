@@ -17,6 +17,7 @@ Items without images are skipped by design, and article pages are never scraped.
 - Image required (`skipped_no_image` if none found in RSS payload)
 - RSS-only parsing (title/summary/content/enclosures/media tags)
 - Duplicate prevention via state persisted in R2 at `state/processed.json`
+- Per-run feed cap: only the 5 most recent items per feed are considered (`MAX_RECENT_PER_FEED`, default `5`)
 - Retention cleanup for old videos and old processed-state entries
 - Per-item error handling so one bad item does not stop the run
 
@@ -81,6 +82,14 @@ python -m app.run
 
 Pipeline writes a machine-readable summary file at `run_summary.json`.
 
+### Manual run helpers
+- Local PowerShell helper:
+  - `.\scripts\manual_run.ps1 -DryRun -MaxItems 5`
+  - `.\scripts\manual_run.ps1 -MaxItems 10`
+- GitHub Actions manual run:
+  - Open **Actions -> Build Shorts -> Run workflow**
+  - Choose `dry_run` and `max_items` inputs
+
 ## Cloudflare R2 Notes
 - Bucket is private (public access disabled).
 - Shared links are presigned GET URLs and expire (default 7 days via `R2_PRESIGN_EXPIRES_SECONDS`).
@@ -88,6 +97,9 @@ Pipeline writes a machine-readable summary file at `run_summary.json`.
   - `https://8da6aa93ea04160c27bb21557c54e2b0.r2.cloudflarestorage.com`
 - Uploaded video key format:
   - `videos/YYYY/MM/DD/<slug>-<hash>.mp4`
+- Duplicate protection:
+  - Primary: item IDs tracked in `state/processed.json` in R2
+  - Secondary: deterministic R2 object key per item, with pre-upload existence check
 
 ### Retention policy
 - `R2_RETENTION_DAYS=30` by default.
@@ -101,6 +113,7 @@ Pipeline writes a machine-readable summary file at `run_summary.json`.
 Workflow file: `.github/workflows/build_shorts.yml`
 - Schedule: hourly (`0 * * * *`)
 - Also supports manual run (`workflow_dispatch`)
+- Manual runs support `dry_run` and `max_items` inputs
 - Installs Python + FFmpeg
 - Executes `python -m app.run`
 - Appends created clip links to job summary from `run_summary.json`
@@ -129,6 +142,7 @@ Create these repo secrets:
 - `EMAIL_TO`
 - `EMAIL_MODE` (`digest` or `per_clip`)
 - `ALWAYS_EMAIL` (`true` or `false`)
+- `MAX_RECENT_PER_FEED` (optional, default `5`)
 
 ## Troubleshooting
 ### Subtitles/font failures
@@ -167,4 +181,3 @@ Covered tests include:
 - State load/save (mocked)
 - Retention pruning logic (mocked)
 - Presigned URL generation (mocked)
-

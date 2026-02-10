@@ -46,6 +46,7 @@ class Settings:
     email_to: str | None
     email_mode: str
     always_email: bool
+    max_recent_per_feed: int
     ffmpeg_bin: str
     ffprobe_bin: str
     user_agent: str
@@ -87,6 +88,7 @@ def load_settings(env_path: str | None = ".env") -> Settings:
         email_to=os.getenv("EMAIL_TO"),
         email_mode=os.getenv("EMAIL_MODE", "digest").strip().lower(),
         always_email=_as_bool(os.getenv("ALWAYS_EMAIL"), default=False),
+        max_recent_per_feed=_as_int(os.getenv("MAX_RECENT_PER_FEED"), 5),
         ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         user_agent=os.getenv(
@@ -120,4 +122,3 @@ def load_style_config(path: str = "config/style.json") -> StyleConfig:
         bitrate=str(payload.get("bitrate", "4M")),
         max_images_per_video=int(payload.get("max_images_per_video", 3)),
     )
-

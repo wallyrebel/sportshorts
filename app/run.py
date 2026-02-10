@@ -6,12 +6,13 @@ import logging
 import sys
 import tempfile
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from app.captions import generate_srt
 from app.email_gmail_smtp import GmailSender
 from app.media_fetch import download_images
-from app.models import VideoResult
+from app.models import RssItem, VideoResult
 from app.r2_storage import R2Storage
 from app.render_ffmpeg import probe_audio_duration, render_video
 from app.rss_ingest import fetch_feed_entries
@@ -49,11 +50,37 @@ def _setup_logging() -> None:
     )
 
 
-def _build_video_key(item_title: str, item_id: str, now: datetime | None = None) -> str:
-    now = now or datetime.now(tz=UTC)
+def _parse_rss_datetime_utc(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = parsedate_to_datetime(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+    except Exception:
+        return None
+
+
+def _select_recent_items(items: list[RssItem], max_recent: int) -> list[RssItem]:
+    if max_recent <= 0:
+        return items
+    sorted_items = sorted(
+        items,
+        key=lambda item: (
+            _parse_rss_datetime_utc(item.published) or datetime(1970, 1, 1, tzinfo=UTC)
+        ),
+        reverse=True,
+    )
+    return sorted_items[:max_recent]
+
+
+def _build_video_key(item_title: str, item_id: str, published: str) -> str:
+    key_date = _parse_rss_datetime_utc(published) or datetime(1970, 1, 1, tzinfo=UTC)
     slug = slugify(item_title, max_length=70)
     suffix = sha256_text(item_id)[:10]
-    return f"videos/{now:%Y/%m/%d}/{slug}-{suffix}.mp4"
+    return f"videos/{key_date:%Y/%m/%d}/{slug}-{suffix}.mp4"
 
 
 def _write_run_summary(path: str, payload: dict) -> None:
@@ -115,6 +142,12 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
     for feed in feeds:
         try:
             items = fetch_feed_entries(feed)
+            items = _select_recent_items(items, settings.max_recent_per_feed)
+            LOGGER.info(
+                "Feed '%s' limited to %s most recent item(s) this run.",
+                feed.name,
+                len(items),
+            )
         except Exception as exc:
             stats["errors"] += 1
             LOGGER.exception("Failed to fetch feed %s: %s", feed.url, exc)
@@ -136,13 +169,28 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
                 LOGGER.info("skip=%s reason=skipped_duplicate title=%s", item.item_id, item.title)
                 continue
 
+            key = _build_video_key(item.title, item.item_id, item.published)
+            if not dry_run:
+                assert r2
+                if r2.object_exists(key):
+                    stats["skipped_duplicate"] += 1
+                    mark_processed(state, item.item_id, timestamp=iso_utc())
+                    LOGGER.info(
+                        "skip=%s reason=skipped_duplicate_existing_object key=%s title=%s",
+                        item.item_id,
+                        key,
+                        item.title,
+                    )
+                    continue
+
             if dry_run:
                 processed_count += 1
                 LOGGER.info(
-                    "[DRY RUN] would_process item_id=%s feed=%s images=%s title=%s",
+                    "[DRY RUN] would_process item_id=%s feed=%s images=%s key=%s title=%s",
                     item.item_id,
                     item.feed_name,
                     len(item.image_urls),
+                    key,
                     item.title,
                 )
                 continue
@@ -190,7 +238,6 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
                         on_screen_hook=script.on_screen_hook,
                     )
 
-                    key = _build_video_key(item.title, item.item_id, now=utcnow())
                     r2.upload_file(output_video, key=key, content_type="video/mp4")
                     url = r2.presign_get_url(
                         key=key,
@@ -264,4 +311,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
