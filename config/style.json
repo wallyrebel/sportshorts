@@ -1,0 +1,10 @@
+{
+  "min_duration_sec": 10,
+  "max_duration_sec": 15,
+  "caption_font_size": 46,
+  "caption_margin_v": 96,
+  "fps": 30,
+  "bitrate": "4M",
+  "max_images_per_video": 3
+}
+

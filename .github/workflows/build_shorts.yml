@@ -1,0 +1,95 @@
+name: Build Shorts
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  build-shorts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_PRIMARY_MODEL: ${{ secrets.OPENAI_PRIMARY_MODEL }}
+          OPENAI_FALLBACK_MODEL: ${{ secrets.OPENAI_FALLBACK_MODEL }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
+          ELEVENLABS_MODEL: ${{ secrets.ELEVENLABS_MODEL }}
+          ELEVENLABS_STABILITY: ${{ secrets.ELEVENLABS_STABILITY }}
+          ELEVENLABS_SIMILARITY: ${{ secrets.ELEVENLABS_SIMILARITY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_PRESIGN_EXPIRES_SECONDS: ${{ secrets.R2_PRESIGN_EXPIRES_SECONDS }}
+          R2_RETENTION_DAYS: ${{ secrets.R2_RETENTION_DAYS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_MODE: ${{ secrets.EMAIL_MODE }}
+          ALWAYS_EMAIL: ${{ secrets.ALWAYS_EMAIL }}
+        run: python -m app.run
+
+      - name: Add job summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f run_summary.json ]; then
+            python - <<'PY'
+            import json
+            from pathlib import Path
+
+            data = json.loads(Path("run_summary.json").read_text(encoding="utf-8"))
+            stats = data.get("stats", {})
+            created = data.get("created", [])
+
+            lines = []
+            lines.append("## AutoSportsVideo Run Summary")
+            lines.append("")
+            lines.append(f"- Dry run: `{data.get('dry_run')}`")
+            lines.append(f"- Created clips: `{data.get('created_count', 0)}`")
+            lines.append(f"- Entries seen: `{stats.get('entries_seen', 0)}`")
+            lines.append(f"- Skipped no image: `{stats.get('skipped_no_image', 0)}`")
+            lines.append(f"- Skipped duplicate: `{stats.get('skipped_duplicate', 0)}`")
+            lines.append(f"- Errors: `{stats.get('errors', 0)}`")
+            lines.append("")
+            if created:
+                lines.append("### Presigned Links")
+                lines.append("")
+                for idx, item in enumerate(created, start=1):
+                    lines.append(f"{idx}. [{item.get('title', 'clip')}]({item.get('presigned_url', '')})")
+            else:
+                lines.append("No clips created in this run.")
+
+            with open(Path.home() / ".step_summary_tmp.md", "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            PY
+            cat ~/.step_summary_tmp.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run_summary.json was not found." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
