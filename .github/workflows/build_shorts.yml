@@ -82,37 +82,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [ -f run_summary.json ]; then
-            python - <<'PY'
-            import json
-            from pathlib import Path
-
-            data = json.loads(Path("run_summary.json").read_text(encoding="utf-8"))
-            stats = data.get("stats", {})
-            created = data.get("created", [])
-
-            lines = []
-            lines.append("## AutoSportsVideo Run Summary")
-            lines.append("")
-            lines.append(f"- Dry run: `{data.get('dry_run')}`")
-            lines.append(f"- Created clips: `{data.get('created_count', 0)}`")
-            lines.append(f"- Entries seen: `{stats.get('entries_seen', 0)}`")
-            lines.append(f"- Skipped no image: `{stats.get('skipped_no_image', 0)}`")
-            lines.append(f"- Skipped duplicate: `{stats.get('skipped_duplicate', 0)}`")
-            lines.append(f"- Errors: `{stats.get('errors', 0)}`")
-            lines.append("")
-            if created:
-                lines.append("### Presigned Links")
-                lines.append("")
-                for idx, item in enumerate(created, start=1):
-                    lines.append(f"{idx}. [{item.get('title', 'clip')}]({item.get('presigned_url', '')})")
-            else:
-                lines.append("No clips created in this run.")
-
-            with open(Path.home() / ".step_summary_tmp.md", "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-            PY
-            cat ~/.step_summary_tmp.md >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "run_summary.json was not found." >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python scripts/write_job_summary.py run_summary.json .step_summary_tmp.md
+          cat .step_summary_tmp.md >> "$GITHUB_STEP_SUMMARY"
