@@ -5,6 +5,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 
 from openai import APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
@@ -31,9 +32,24 @@ class ScriptGenerator:
         self._cfg = config or ModelConfig()
 
     def create_script(self, item: RssItem) -> ScriptResult:
+        source_text = f"{item.title}\n{item.summary}".strip()
         prompt = self._build_prompt(item)
-        primary_err: Exception | None = None
+        first = self._generate_with_fallback(prompt=prompt, item_id=item.item_id)
+        if not _looks_too_similar(first.narration_text, source_text):
+            return first
 
+        LOGGER.warning(
+            "Narration too close to RSS wording for item %s; forcing rewrite pass.",
+            item.item_id,
+        )
+        rewrite_prompt = self._build_rewrite_prompt(item=item, prior=first.narration_text)
+        second = self._generate_with_fallback(prompt=rewrite_prompt, item_id=item.item_id)
+        if _looks_too_similar(second.narration_text, source_text):
+            raise ValueError("Generated narration remains too close to RSS wording")
+        return second
+
+    def _generate_with_fallback(self, prompt: str, item_id: str) -> ScriptResult:
+        primary_err: Exception | None = None
         try:
             return self._run_model_with_retry(
                 model=self._cfg.primary_model,
@@ -45,7 +61,7 @@ class ScriptGenerator:
                 primary_err = exc
                 LOGGER.warning(
                     "Primary model failed for item %s; falling back to %s. error=%s",
-                    item.item_id,
+                    item_id,
                     self._cfg.fallback_model,
                     exc,
                 )
@@ -103,6 +119,8 @@ class ScriptGenerator:
 You are writing short voiceover scripts for vertical sports videos.
 You MUST use only facts present in the RSS fields below. Do not invent details.
 If details are limited, keep wording general and clearly avoid specifics not present.
+You MUST rewrite/paraphrase into fresh wording. Do NOT copy lines or phrases verbatim
+from the RSS text. Do not quote the RSS sentence structure.
 
 Output strict JSON with this exact shape:
 {{
@@ -115,6 +133,31 @@ RSS title:
 
 RSS summary:
 {summary}
+"""
+
+    @staticmethod
+    def _build_rewrite_prompt(item: RssItem, prior: str) -> str:
+        title = item.title[:350]
+        summary = item.summary[:1600]
+        prior = prior[:1200]
+        return f"""
+Rewrite the narration so it is clearly different from the source wording while staying
+factually accurate to the RSS content only. Do not copy any long phrases from source text.
+
+Output strict JSON with this exact shape:
+{{
+  "narration_text": "35-95 words, fresh paraphrase, spoken style, no hashtags, no emojis",
+  "on_screen_hook": ""
+}}
+
+RSS title:
+{title}
+
+RSS summary:
+{summary}
+
+Previous draft to rewrite away from:
+{prior}
 """
 
 
@@ -164,3 +207,31 @@ def _is_retryable(exc: Exception) -> bool:
 
 def _is_fallback_worthy(exc: Exception) -> bool:
     return _is_retryable(exc)
+
+
+def _looks_too_similar(narration: str, source_text: str) -> bool:
+    n = _normalize_similarity_text(narration)
+    s = _normalize_similarity_text(source_text)
+    if not n or not s:
+        return False
+
+    ratio = SequenceMatcher(None, n, s).ratio()
+    if ratio >= 0.82:
+        return True
+
+    n_words = n.split()
+    if len(n_words) < 10:
+        return False
+    phrase_window = 10
+    for idx in range(0, len(n_words) - phrase_window + 1):
+        chunk = " ".join(n_words[idx : idx + phrase_window])
+        if chunk in s:
+            return True
+    return False
+
+
+def _normalize_similarity_text(text: str) -> str:
+    lowered = text.lower()
+    lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+    lowered = re.sub(r"\s+", " ", lowered).strip()
+    return lowered

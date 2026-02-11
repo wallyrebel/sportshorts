@@ -3,7 +3,7 @@
 Automated Python pipeline that runs hourly, reads multiple RSS feeds, and creates vertical Shorts/Reels clips from RSS-only content.
 
 For each **new** RSS item with at least one image:
-- Generates a short narration script with OpenAI (primary + fallback model)
+- Generates a rewritten narration script with OpenAI (primary + fallback model), fact-checked against RSS content and not copied word-for-word
 - Generates voiceover MP3 with ElevenLabs
 - Renders a 1080x1920 MP4 with FFmpeg (Ken Burns image motion + optional burned captions)
 - Uploads MP4 to private Cloudflare R2
@@ -169,6 +169,7 @@ Create these repo secrets:
 - Script generation first uses `OPENAI_PRIMARY_MODEL` (default `gpt-5-mini`) with hard timeout.
 - On timeout/429/5xx, it falls back to `OPENAI_FALLBACK_MODEL` (default `gpt-4.1-nano`).
 - Logs include which model was used for each processed item.
+- Narration is forced to be a factual rewrite/paraphrase of RSS content (not verbatim copy), with an automatic rewrite pass if similarity is too high.
 
 ## Testing
 Run unit tests:
