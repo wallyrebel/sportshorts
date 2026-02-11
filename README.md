@@ -1,6 +1,6 @@
 # AutoSportsVideo
 
-Automated Python pipeline that runs hourly, reads multiple RSS feeds, and creates 10-15 second vertical Shorts/Reels clips from RSS-only content.
+Automated Python pipeline that runs hourly, reads multiple RSS feeds, and creates vertical Shorts/Reels clips from RSS-only content.
 
 For each **new** RSS item with at least one image:
 - Generates a short narration script with OpenAI (primary + fallback model)
@@ -17,7 +17,7 @@ Items without images are skipped by design, and article pages are never scraped.
 - Image required (`skipped_no_image` if none found in RSS payload)
 - RSS-only parsing (title/summary/content/enclosures/media tags)
 - Duplicate prevention via state persisted in R2 at `state/processed.json`
-- Per-run feed cap: only the 5 most recent items per feed are considered (`MAX_RECENT_PER_FEED`, default `5`)
+- Per-run feed cap: only the 5 most recent items per feed are considered (`MAX_RECENT_PER_FEED`, default `5`), then all candidates are processed globally newest-first regardless of feed
 - Retention cleanup for old videos and old processed-state entries
 - Per-item error handling so one bad item does not stop the run
 
@@ -27,7 +27,7 @@ Items without images are skipped by design, and article pages are never scraped.
 - `app/script_llm.py`: OpenAI script generation with fallback/retries/timeouts
 - `app/tts_elevenlabs.py`: ElevenLabs TTS with retries
 - `app/captions.py`: SRT generation
-- `app/render_ffmpeg.py`: FFmpeg rendering with subtitles fallback
+- `app/render_ffmpeg.py`: FFmpeg rendering with subtitles fallback (no extra on-screen hook text, captions only)
 - `app/r2_storage.py`: Cloudflare R2 upload/state/presign/retention operations
 - `app/state.py`: duplicate state load/save/prune
 - `app/email_gmail_smtp.py`: digest/per-clip email delivery via Gmail SMTP
@@ -81,6 +81,7 @@ python -m app.run
 - `--max-items N`: cap newly processed items for test runs
 
 Pipeline writes a machine-readable summary file at `run_summary.json`.
+By default, clips target at least 10 seconds and can extend up to `max_duration_sec` (default `45`) based on narration audio length.
 
 ### Manual run helpers
 - Local PowerShell helper:

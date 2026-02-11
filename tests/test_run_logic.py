@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.models import RssItem
-from app.run import _build_video_key, _select_recent_items
+from app.run import _build_video_key, _select_recent_items, _sort_items_newest_first
 
 
 def _item(item_id: str, published: str) -> RssItem:
@@ -37,3 +37,12 @@ def test_build_video_key_is_deterministic_for_same_item() -> None:
     assert key_1 == key_2
     assert key_1.startswith("videos/2024/01/09/")
 
+
+def test_sort_items_newest_first_across_feeds() -> None:
+    items = [
+        _item("feed1-old", "Mon, 01 Jan 2024 10:00:00 GMT"),
+        _item("feed2-new", "Fri, 05 Jan 2024 10:00:00 GMT"),
+        _item("feed3-mid", "Wed, 03 Jan 2024 10:00:00 GMT"),
+    ]
+    sorted_items = _sort_items_newest_first(items)
+    assert [item.item_id for item in sorted_items] == ["feed2-new", "feed3-mid", "feed1-old"]

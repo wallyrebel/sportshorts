@@ -13,7 +13,7 @@ class FeedConfig:
 @dataclass(slots=True)
 class StyleConfig:
     min_duration_sec: int = 10
-    max_duration_sec: int = 15
+    max_duration_sec: int = 45
     caption_font_size: int = 46
     caption_margin_v: int = 96
     fps: int = 30
@@ -51,4 +51,3 @@ class VideoResult:
     presigned_url: str
     model_used: str
     created_at: datetime
-

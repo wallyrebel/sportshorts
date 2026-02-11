@@ -12,6 +12,8 @@ from app.models import RssItem, ScriptResult
 from app.utils import word_count
 
 LOGGER = logging.getLogger(__name__)
+MIN_WORDS = 35
+MAX_WORDS = 95
 
 
 @dataclass(slots=True)
@@ -104,8 +106,8 @@ If details are limited, keep wording general and clearly avoid specifics not pre
 
 Output strict JSON with this exact shape:
 {{
-  "narration_text": "35-55 words, spoken style, no hashtags, no emojis, no weird symbols",
-  "on_screen_hook": "max 8 words"
+  "narration_text": "35-95 words, spoken style, no hashtags, no emojis, no weird symbols",
+  "on_screen_hook": "optional, max 8 words"
 }}
 
 RSS title:
@@ -131,26 +133,22 @@ def _parse_model_json(text: str) -> dict:
 
 def _normalize_script(payload: dict, model: str) -> ScriptResult:
     narration = re.sub(r"\s+", " ", str(payload.get("narration_text", "")).strip())
-    hook = re.sub(r"\s+", " ", str(payload.get("on_screen_hook", "")).strip())
+    hook = ""
 
     narration = narration.replace("#", "")
-    hook = hook.replace("#", "")
-    hook_words = hook.split()
-    if len(hook_words) > 8:
-        hook = " ".join(hook_words[:8])
 
     words = narration.split()
-    if len(words) > 55:
-        narration = " ".join(words[:55]).rstrip(".,;:!?") + "."
-    elif len(words) < 35:
+    if len(words) > MAX_WORDS:
+        narration = " ".join(words[:MAX_WORDS]).rstrip(".,;:!?") + "."
+    elif len(words) < MIN_WORDS:
         pad = " This update is based on the RSS item details currently available."
         narration = (narration + pad).strip()
         words = narration.split()
-        if len(words) > 55:
-            narration = " ".join(words[:55]).rstrip(".,;:!?") + "."
+        if len(words) > MAX_WORDS:
+            narration = " ".join(words[:MAX_WORDS]).rstrip(".,;:!?") + "."
 
     final_count = word_count(narration)
-    if final_count < 35:
+    if final_count < MIN_WORDS:
         raise ValueError("Narration too short after normalization")
 
     return ScriptResult(narration_text=narration, on_screen_hook=hook, model_used=model)
@@ -166,4 +164,3 @@ def _is_retryable(exc: Exception) -> bool:
 
 def _is_fallback_worthy(exc: Exception) -> bool:
     return _is_retryable(exc)
-

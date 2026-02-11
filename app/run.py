@@ -76,6 +76,14 @@ def _select_recent_items(items: list[RssItem], max_recent: int) -> list[RssItem]
     return sorted_items[:max_recent]
 
 
+def _sort_items_newest_first(items: list[RssItem]) -> list[RssItem]:
+    return sorted(
+        items,
+        key=lambda item: (_parse_rss_datetime_utc(item.published) or datetime(1970, 1, 1, tzinfo=UTC)),
+        reverse=True,
+    )
+
+
 def _build_video_key(item_title: str, item_id: str, published: str) -> str:
     key_date = _parse_rss_datetime_utc(published) or datetime(1970, 1, 1, tzinfo=UTC)
     slug = slugify(item_title, max_length=70)
@@ -139,10 +147,12 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
     else:
         LOGGER.info("Dry run enabled. No render/upload/email side effects will occur.")
 
+    feed_candidates: list[RssItem] = []
     for feed in feeds:
         try:
             items = fetch_feed_entries(feed)
             items = _select_recent_items(items, settings.max_recent_per_feed)
+            feed_candidates.extend(items)
             LOGGER.info(
                 "Feed '%s' limited to %s most recent item(s) this run.",
                 feed.name,
@@ -153,121 +163,128 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
             LOGGER.exception("Failed to fetch feed %s: %s", feed.url, exc)
             continue
 
-        for item in items:
-            stats["entries_seen"] += 1
-            if max_items and processed_count >= max_items:
-                LOGGER.info("Reached --max-items=%s, stopping early.", max_items)
-                break
+    all_items = _sort_items_newest_first(feed_candidates)
+    stats["entries_seen"] = len(all_items)
+    LOGGER.info("Processing %s candidate items globally by newest publish date first.", len(all_items))
 
-            if not item.image_urls:
-                stats["skipped_no_image"] += 1
-                LOGGER.info("skip=%s reason=skipped_no_image title=%s", item.item_id, item.title)
-                continue
+    seen_item_ids: set[str] = set()
+    for item in all_items:
+        if max_items and processed_count >= max_items:
+            LOGGER.info("Reached --max-items=%s, stopping early.", max_items)
+            break
 
-            if is_processed(state, item.item_id):
+        if item.item_id in seen_item_ids:
+            stats["skipped_duplicate"] += 1
+            LOGGER.info("skip=%s reason=skipped_duplicate_in_same_run title=%s", item.item_id, item.title)
+            continue
+        seen_item_ids.add(item.item_id)
+
+        if not item.image_urls:
+            stats["skipped_no_image"] += 1
+            LOGGER.info("skip=%s reason=skipped_no_image title=%s", item.item_id, item.title)
+            continue
+
+        if is_processed(state, item.item_id):
+            stats["skipped_duplicate"] += 1
+            LOGGER.info("skip=%s reason=skipped_duplicate title=%s", item.item_id, item.title)
+            continue
+
+        key = _build_video_key(item.title, item.item_id, item.published)
+        if not dry_run:
+            assert r2
+            if r2.object_exists(key):
                 stats["skipped_duplicate"] += 1
-                LOGGER.info("skip=%s reason=skipped_duplicate title=%s", item.item_id, item.title)
-                continue
-
-            key = _build_video_key(item.title, item.item_id, item.published)
-            if not dry_run:
-                assert r2
-                if r2.object_exists(key):
-                    stats["skipped_duplicate"] += 1
-                    mark_processed(state, item.item_id, timestamp=iso_utc())
-                    LOGGER.info(
-                        "skip=%s reason=skipped_duplicate_existing_object key=%s title=%s",
-                        item.item_id,
-                        key,
-                        item.title,
-                    )
-                    continue
-
-            if dry_run:
-                processed_count += 1
+                mark_processed(state, item.item_id, timestamp=iso_utc())
                 LOGGER.info(
-                    "[DRY RUN] would_process item_id=%s feed=%s images=%s key=%s title=%s",
+                    "skip=%s reason=skipped_duplicate_existing_object key=%s title=%s",
                     item.item_id,
-                    item.feed_name,
-                    len(item.image_urls),
                     key,
                     item.title,
                 )
                 continue
 
-            assert r2 and script_gen and tts and email_sender
-            try:
-                with tempfile.TemporaryDirectory(prefix="autosports_") as tmp:
-                    tmp_path = Path(tmp)
-                    downloaded = download_images(
-                        item.image_urls,
-                        output_dir=tmp_path / "images",
-                        max_images=max(1, style.max_images_per_video),
-                        user_agent=settings.user_agent,
-                    )
-                    if not downloaded:
-                        stats["skipped_no_downloadable_image"] += 1
-                        LOGGER.info(
-                            "skip=%s reason=skipped_no_downloadable_image title=%s",
-                            item.item_id,
-                            item.title,
-                        )
-                        continue
+        if dry_run:
+            processed_count += 1
+            LOGGER.info(
+                "[DRY RUN] would_process item_id=%s feed=%s images=%s key=%s title=%s",
+                item.item_id,
+                item.feed_name,
+                len(item.image_urls),
+                key,
+                item.title,
+            )
+            continue
 
-                    script = script_gen.create_script(item)
-                    audio_path = tmp_path / "voiceover.mp3"
-                    tts.synthesize(script.narration_text, output_path=audio_path)
-                    audio_duration = probe_audio_duration(audio_path, ffprobe_bin=settings.ffprobe_bin)
-
-                    duration = min(max(audio_duration, style.min_duration_sec), style.max_duration_sec)
-                    srt_path = generate_srt(
-                        narration_text=script.narration_text,
-                        duration_sec=duration,
-                        output_path=tmp_path / "captions.srt",
+        assert r2 and script_gen and tts and email_sender
+        try:
+            with tempfile.TemporaryDirectory(prefix="autosports_") as tmp:
+                tmp_path = Path(tmp)
+                downloaded = download_images(
+                    item.image_urls,
+                    output_dir=tmp_path / "images",
+                    max_images=max(1, style.max_images_per_video),
+                    user_agent=settings.user_agent,
+                )
+                if not downloaded:
+                    stats["skipped_no_downloadable_image"] += 1
+                    LOGGER.info(
+                        "skip=%s reason=skipped_no_downloadable_image title=%s",
+                        item.item_id,
+                        item.title,
                     )
+                    continue
 
-                    output_video = tmp_path / "clip.mp4"
-                    render_video(
-                        image_paths=downloaded[: style.max_images_per_video],
-                        audio_path=audio_path,
-                        output_path=output_video,
-                        style=style,
-                        ffmpeg_bin=settings.ffmpeg_bin,
-                        ffprobe_bin=settings.ffprobe_bin,
-                        srt_path=srt_path,
-                        on_screen_hook=script.on_screen_hook,
-                    )
+                script = script_gen.create_script(item)
+                audio_path = tmp_path / "voiceover.mp3"
+                tts.synthesize(script.narration_text, output_path=audio_path)
+                audio_duration = probe_audio_duration(audio_path, ffprobe_bin=settings.ffprobe_bin)
 
-                    r2.upload_file(output_video, key=key, content_type="video/mp4")
-                    url = r2.presign_get_url(
-                        key=key,
-                        expires_seconds=settings.r2_presign_expires_seconds,
-                    )
+                duration = min(max(audio_duration, style.min_duration_sec), style.max_duration_sec)
+                srt_path = generate_srt(
+                    narration_text=script.narration_text,
+                    duration_sec=duration,
+                    output_path=tmp_path / "captions.srt",
+                )
 
-                    now_ts = utcnow()
-                    created.append(
-                        VideoResult(
-                            item_id=item.item_id,
-                            feed_name=item.feed_name,
-                            title=item.title,
-                            published=item.published,
-                            source_link=item.link,
-                            r2_key=key,
-                            presigned_url=url,
-                            model_used=script.model_used,
-                            created_at=now_ts,
-                        )
+                output_video = tmp_path / "clip.mp4"
+                render_video(
+                    image_paths=downloaded[: style.max_images_per_video],
+                    audio_path=audio_path,
+                    output_path=output_video,
+                    style=style,
+                    ffmpeg_bin=settings.ffmpeg_bin,
+                    ffprobe_bin=settings.ffprobe_bin,
+                    srt_path=srt_path,
+                )
+
+                r2.upload_file(output_video, key=key, content_type="video/mp4")
+                url = r2.presign_get_url(
+                    key=key,
+                    expires_seconds=settings.r2_presign_expires_seconds,
+                )
+
+                now_ts = utcnow()
+                created.append(
+                    VideoResult(
+                        item_id=item.item_id,
+                        feed_name=item.feed_name,
+                        title=item.title,
+                        published=item.published,
+                        source_link=item.link,
+                        r2_key=key,
+                        presigned_url=url,
+                        model_used=script.model_used,
+                        created_at=now_ts,
                     )
-                    mark_processed(state, item.item_id, timestamp=iso_utc(now_ts))
-                    processed_count += 1
-                    stats["processed"] += 1
-                    LOGGER.info("processed item_id=%s key=%s", item.item_id, key)
-            except Exception as exc:
-                stats["errors"] += 1
-                LOGGER.exception("Failed processing item_id=%s error=%s", item.item_id, exc)
-                continue
-        if max_items and processed_count >= max_items:
-            break
+                )
+                mark_processed(state, item.item_id, timestamp=iso_utc(now_ts))
+                processed_count += 1
+                stats["processed"] += 1
+                LOGGER.info("processed item_id=%s key=%s", item.item_id, key)
+        except Exception as exc:
+            stats["errors"] += 1
+            LOGGER.exception("Failed processing item_id=%s error=%s", item.item_id, exc)
+            continue
 
     if not dry_run:
         assert r2 and email_sender

@@ -6,7 +6,6 @@ import subprocess
 from pathlib import Path
 
 from app.models import StyleConfig
-from app.utils import sanitize_for_ffmpeg_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,7 +39,6 @@ def _build_filter_complex(
     fps: int,
     srt_path: Path | None,
     style: StyleConfig,
-    on_screen_hook: str,
 ) -> tuple[str, str]:
     parts: list[str] = []
     frames_per_segment = max(1, int(math.ceil(segment_sec * fps)))
@@ -56,15 +54,6 @@ def _build_filter_complex(
     concat_inputs = "".join(f"[v{i}]" for i in range(image_count))
     parts.append(f"{concat_inputs}concat=n={image_count}:v=1:a=0[vcat]")
     last_stream = "vcat"
-
-    hook = on_screen_hook.strip()
-    if hook:
-        safe_hook = sanitize_for_ffmpeg_text(hook)
-        parts.append(
-            f"[{last_stream}]drawbox=x=40:y=50:w=1000:h=150:color=black@0.35:t=fill,"
-            f"drawtext=text='{safe_hook}':x=(w-text_w)/2:y=95:fontsize=58:fontcolor=white:borderw=2:bordercolor=black@0.8[vhook]"
-        )
-        last_stream = "vhook"
 
     if srt_path:
         escaped_srt = _escape_subtitles_path(srt_path)
@@ -83,7 +72,6 @@ def render_video(
     ffmpeg_bin: str = "ffmpeg",
     ffprobe_bin: str = "ffprobe",
     srt_path: Path | None = None,
-    on_screen_hook: str = "",
 ) -> Path:
     if not image_paths:
         raise ValueError("At least one image is required for rendering")
@@ -97,7 +85,6 @@ def render_video(
         fps=style.fps,
         srt_path=srt_path,
         style=style,
-        on_screen_hook=on_screen_hook,
     )
 
     cmd: list[str] = [ffmpeg_bin, "-y"]
@@ -153,7 +140,5 @@ def render_video(
                 ffmpeg_bin=ffmpeg_bin,
                 ffprobe_bin=ffprobe_bin,
                 srt_path=None,
-                on_screen_hook=on_screen_hook,
             )
         raise RuntimeError(f"ffmpeg render failed: {exc.stderr[-2000:]}") from exc
-

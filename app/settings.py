@@ -115,7 +115,7 @@ def load_style_config(path: str = "config/style.json") -> StyleConfig:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     return StyleConfig(
         min_duration_sec=int(payload.get("min_duration_sec", 10)),
-        max_duration_sec=int(payload.get("max_duration_sec", 15)),
+        max_duration_sec=int(payload.get("max_duration_sec", 45)),
         caption_font_size=int(payload.get("caption_font_size", 46)),
         caption_margin_v=int(payload.get("caption_margin_v", 96)),
         fps=int(payload.get("fps", 30)),
