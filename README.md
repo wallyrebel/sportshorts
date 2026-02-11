@@ -17,7 +17,7 @@ Items without images are skipped by design, and article pages are never scraped.
 - Image required (`skipped_no_image` if none found in RSS payload)
 - RSS-only parsing (title/summary/content/enclosures/media tags)
 - Duplicate prevention via state persisted in R2 at `state/processed.json`
-- Per-run feed cap: only the 5 most recent items per feed are considered (`MAX_RECENT_PER_FEED`, default `5`), then all candidates are processed globally newest-first regardless of feed
+- Per-run feed cap: hard-capped at 5 most recent items per feed (even if env is set higher), then all candidates are processed globally newest-first regardless of feed
 - Retention cleanup for old videos and old processed-state entries
 - Per-item error handling so one bad item does not stop the run
 
@@ -82,6 +82,7 @@ python -m app.run
 
 Pipeline writes a machine-readable summary file at `run_summary.json`.
 By default, clips target at least 10 seconds and can extend up to `max_duration_sec` (default `45`) based on narration audio length.
+Default caption font size is reduced to `24` and runtime-clamped between `16` and `32` to avoid oversized text.
 
 ### Manual run helpers
 - Local PowerShell helper:

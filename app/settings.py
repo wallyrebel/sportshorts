@@ -22,6 +22,10 @@ def _as_int(value: str | None, default: int) -> int:
     return int(value)
 
 
+def _clamp(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(value, maximum))
+
+
 @dataclass(slots=True)
 class Settings:
     openai_api_key: str | None
@@ -88,7 +92,7 @@ def load_settings(env_path: str | None = ".env") -> Settings:
         email_to=os.getenv("EMAIL_TO"),
         email_mode=os.getenv("EMAIL_MODE", "digest").strip().lower(),
         always_email=_as_bool(os.getenv("ALWAYS_EMAIL"), default=False),
-        max_recent_per_feed=_as_int(os.getenv("MAX_RECENT_PER_FEED"), 5),
+        max_recent_per_feed=_clamp(_as_int(os.getenv("MAX_RECENT_PER_FEED"), 5), 1, 5),
         ffmpeg_bin=os.getenv("FFMPEG_BIN", "ffmpeg"),
         ffprobe_bin=os.getenv("FFPROBE_BIN", "ffprobe"),
         user_agent=os.getenv(
@@ -113,10 +117,11 @@ def load_feeds_config(path: str = "config/feeds.json") -> list[FeedConfig]:
 
 def load_style_config(path: str = "config/style.json") -> StyleConfig:
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    caption_font_size = _clamp(int(payload.get("caption_font_size", 24)), 16, 32)
     return StyleConfig(
         min_duration_sec=int(payload.get("min_duration_sec", 10)),
         max_duration_sec=int(payload.get("max_duration_sec", 45)),
-        caption_font_size=int(payload.get("caption_font_size", 46)),
+        caption_font_size=caption_font_size,
         caption_margin_v=int(payload.get("caption_margin_v", 96)),
         fps=int(payload.get("fps", 30)),
         bitrate=str(payload.get("bitrate", "4M")),
