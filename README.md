@@ -18,6 +18,7 @@ Items without images are skipped by design, and article pages are never scraped.
 - RSS-only parsing (title/summary/content/enclosures/media tags)
 - Duplicate prevention via state persisted in R2 at `state/processed.json`
 - Per-run feed cap: hard-capped at 5 most recent items per feed (even if env is set higher), then all candidates are processed globally newest-first regardless of feed
+- Cross-feed same-story dedupe: near-duplicate title/summary items are collapsed and only the first chronological item is kept
 - Retention cleanup for old videos and old processed-state entries
 - Per-item error handling so one bad item does not stop the run
 

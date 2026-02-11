@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import sys
 import tempfile
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
@@ -84,6 +86,58 @@ def _sort_items_newest_first(items: list[RssItem]) -> list[RssItem]:
     )
 
 
+def _sort_items_oldest_first(items: list[RssItem]) -> list[RssItem]:
+    return sorted(
+        items,
+        key=lambda item: (_parse_rss_datetime_utc(item.published) or datetime(1970, 1, 1, tzinfo=UTC)),
+    )
+
+
+def _normalize_story_text(text: str) -> str:
+    lowered = text.lower()
+    lowered = re.sub(r"<[^>]+>", " ", lowered)
+    lowered = re.sub(r"[^a-z0-9\s]", " ", lowered)
+    lowered = re.sub(r"\s+", " ", lowered).strip()
+    return lowered
+
+
+def _story_text(item: RssItem) -> str:
+    return _normalize_story_text(f"{item.title} {item.summary}")
+
+
+def _story_similarity(a: RssItem, b: RssItem) -> float:
+    a_text = _story_text(a)
+    b_text = _story_text(b)
+    if not a_text or not b_text:
+        return 0.0
+    char_ratio = SequenceMatcher(None, a_text, b_text).ratio()
+    a_tokens = set(a_text.split())
+    b_tokens = set(b_text.split())
+    if not a_tokens or not b_tokens:
+        token_jaccard = 0.0
+    else:
+        token_jaccard = len(a_tokens & b_tokens) / len(a_tokens | b_tokens)
+    return max(char_ratio, token_jaccard)
+
+
+def _select_first_chronological_unique_stories(
+    items: list[RssItem], similarity_threshold: float = 0.84
+) -> tuple[list[RssItem], dict[str, str]]:
+    kept: list[RssItem] = []
+    skipped_map: dict[str, str] = {}
+    for item in _sort_items_oldest_first(items):
+        matched_with: str | None = None
+        for existing in kept:
+            if _story_similarity(item, existing) >= similarity_threshold:
+                matched_with = existing.item_id
+                break
+        if matched_with:
+            skipped_map[item.item_id] = matched_with
+            continue
+        kept.append(item)
+    return kept, skipped_map
+
+
 def _build_video_key(item_title: str, item_id: str, published: str) -> str:
     key_date = _parse_rss_datetime_utc(published) or datetime(1970, 1, 1, tzinfo=UTC)
     slug = slugify(item_title, max_length=70)
@@ -101,6 +155,7 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
     stats = {
         "feeds": len(feeds),
         "entries_seen": 0,
+        "skipped_same_story": 0,
         "skipped_no_image": 0,
         "skipped_duplicate": 0,
         "skipped_no_downloadable_image": 0,
@@ -163,9 +218,21 @@ def run_pipeline(settings: Settings, dry_run: bool, max_items: int) -> dict:
             LOGGER.exception("Failed to fetch feed %s: %s", feed.url, exc)
             continue
 
-    all_items = _sort_items_newest_first(feed_candidates)
-    stats["entries_seen"] = len(all_items)
-    LOGGER.info("Processing %s candidate items globally by newest publish date first.", len(all_items))
+    stats["entries_seen"] = len(feed_candidates)
+    unique_story_items, skipped_story_map = _select_first_chronological_unique_stories(feed_candidates)
+    stats["skipped_same_story"] = len(skipped_story_map)
+    all_items = _sort_items_newest_first(unique_story_items)
+    LOGGER.info(
+        "Processing %s unique candidate items globally by newest publish date first (skipped_same_story=%s).",
+        len(all_items),
+        stats["skipped_same_story"],
+    )
+    for item_id, kept_item_id in skipped_story_map.items():
+        LOGGER.info(
+            "skip=%s reason=skipped_same_story kept_first_chronological=%s",
+            item_id,
+            kept_item_id,
+        )
 
     seen_item_ids: set[str] = set()
     for item in all_items:

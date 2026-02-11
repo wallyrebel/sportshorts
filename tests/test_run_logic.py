@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from app.models import RssItem
-from app.run import _build_video_key, _select_recent_items, _sort_items_newest_first
+from app.run import (
+    _build_video_key,
+    _select_first_chronological_unique_stories,
+    _select_recent_items,
+    _sort_items_newest_first,
+)
 
 
 def _item(item_id: str, published: str) -> RssItem:
@@ -46,3 +51,40 @@ def test_sort_items_newest_first_across_feeds() -> None:
     ]
     sorted_items = _sort_items_newest_first(items)
     assert [item.item_id for item in sorted_items] == ["feed2-new", "feed3-mid", "feed1-old"]
+
+
+def test_same_story_dedupe_keeps_first_chronological() -> None:
+    older = RssItem(
+        feed_name="Feed 1",
+        feed_url="https://example.com/1",
+        item_id="older",
+        title="Big upset in state final",
+        summary="Team Alpha beat Team Beta by one point to win the state championship.",
+        link="https://example.com/a",
+        published="Mon, 01 Jan 2024 10:00:00 GMT",
+        image_urls=["https://example.com/1.jpg"],
+    )
+    newer_similar = RssItem(
+        feed_name="Feed 2",
+        feed_url="https://example.com/2",
+        item_id="newer",
+        title="Big upset in state final as Team Alpha beats Team Beta",
+        summary="Team Alpha beat Team Beta by one point to win the state championship game.",
+        link="https://example.com/b",
+        published="Tue, 02 Jan 2024 10:00:00 GMT",
+        image_urls=["https://example.com/2.jpg"],
+    )
+    distinct = RssItem(
+        feed_name="Feed 3",
+        feed_url="https://example.com/3",
+        item_id="distinct",
+        title="Coach signs long-term extension",
+        summary="The head coach signs a multi-year extension through 2029.",
+        link="https://example.com/c",
+        published="Wed, 03 Jan 2024 10:00:00 GMT",
+        image_urls=["https://example.com/3.jpg"],
+    )
+
+    kept, skipped = _select_first_chronological_unique_stories([newer_similar, older, distinct])
+    assert [item.item_id for item in kept] == ["older", "distinct"]
+    assert skipped["newer"] == "older"
