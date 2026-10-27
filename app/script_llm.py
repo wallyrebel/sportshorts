@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 from openai import APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from app.models import RssItem, ScriptResult
-from app.model_options import resolve_retired_model
+from app.model_options import resolve_retired_model, replacement_payload_problem
 from app.utils import word_count
 
 LOGGER = logging.getLogger(__name__)
@@ -93,6 +93,8 @@ class ScriptGenerator:
                 )
                 text = (response.output_text or "").strip()
                 result = _parse_model_json(text)
+                if model == "gpt-6-luna" and replacement_payload_problem(result):
+                    raise ValueError("replacement_model_missing_source_details")
                 result = _normalize_script(result, model=model)
                 LOGGER.info("Script model used: %s", model)
                 return result
