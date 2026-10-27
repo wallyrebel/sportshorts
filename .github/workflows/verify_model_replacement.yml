@@ -43,3 +43,5 @@ jobs:
               usage=response.usage
               print(json.dumps({'model':response.model,'format':response_format['type'],'valid':True,'input_tokens':usage.prompt_tokens,'output_tokens':usage.completion_tokens,'reasoning_tokens':getattr(usage.completion_tokens_details,'reasoning_tokens',None),'shutdown_date':getattr(model,'shutdown_date',None)}))
           PY
+
+# Verify the specialized Luna missing-detail response contract.
