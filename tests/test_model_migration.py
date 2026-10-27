@@ -15,3 +15,10 @@ def test_retired_fallback_is_bounded_and_other_model_role_is_preserved():
     assert options["max_output_tokens"] == 2000
     assert options["reasoning"] == {"effort": "none"}
     assert options["store"] is False
+
+
+def test_observed_missing_detail_narration_is_not_eligible_for_output():
+    from app.model_options import replacement_payload_problem
+    assert replacement_payload_problem({"headline":"No Schedule Details Provided for NAHS Athletics", "body":"It does not provide a schedule."})
+    assert replacement_payload_problem({"narration_text":"The supplied text asks a question but does not include an answer."})
+    assert replacement_payload_problem({"headline":"Road reopened", "body":"Main Street reopened."}) is None
