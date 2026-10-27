@@ -125,7 +125,7 @@ Workflow file: `.github/workflows/build_shorts.yml`
 Create these repo secrets:
 - `OPENAI_API_KEY`
 - `OPENAI_PRIMARY_MODEL` (optional; default `gpt-5-mini`)
-- `OPENAI_FALLBACK_MODEL` (optional; default `gpt-4.1-nano`)
+- `OPENAI_FALLBACK_MODEL` (optional; default `gpt-6-luna`)
 - `ELEVENLABS_API_KEY`
 - `ELEVENLABS_VOICE_ID`
 - `ELEVENLABS_MODEL` (optional)
@@ -168,7 +168,7 @@ Create these repo secrets:
 
 ### OpenAI fallback behavior
 - Script generation first uses `OPENAI_PRIMARY_MODEL` (default `gpt-5-mini`) with hard timeout.
-- On timeout/429/5xx, it falls back to `OPENAI_FALLBACK_MODEL` (default `gpt-4.1-nano`).
+- On timeout/429/5xx, it falls back to `OPENAI_FALLBACK_MODEL` (default `gpt-6-luna`).
 - Logs include which model was used for each processed item.
 - Narration is forced to be a factual rewrite/paraphrase of RSS content (not verbatim copy), with an automatic rewrite pass if similarity is too high.
 

@@ -10,6 +10,7 @@ from difflib import SequenceMatcher
 from openai import APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from app.models import RssItem, ScriptResult
+from app.model_options import resolve_retired_model
 from app.utils import word_count
 
 LOGGER = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ MAX_WORDS = 95
 @dataclass(slots=True)
 class ModelConfig:
     primary_model: str = "gpt-5-mini"
-    fallback_model: str = "gpt-4.1-nano"
+    fallback_model: str = "gpt-6-luna"
     primary_timeout_sec: int = 20
     fallback_timeout_sec: int = 15
     max_retries: int = 3
@@ -79,6 +80,8 @@ class ScriptGenerator:
     def _run_model_with_retry(
         self, model: str, timeout_sec: int, prompt: str
     ) -> ScriptResult:
+        model = resolve_retired_model(model)
+        options = {"reasoning": {"effort": "none"}, "max_output_tokens": 2000, "store": False} if model == "gpt-6-luna" else {}
         last_error: Exception | None = None
         for attempt in range(1, self._cfg.max_retries + 1):
             try:
@@ -86,6 +89,7 @@ class ScriptGenerator:
                     model=model,
                     input=prompt,
                     timeout=timeout_sec,
+                    **options,
                 )
                 text = (response.output_text or "").strip()
                 result = _parse_model_json(text)

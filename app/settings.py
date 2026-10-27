@@ -70,7 +70,7 @@ def load_settings(env_path: str | None = ".env") -> Settings:
     return Settings(
         openai_api_key=os.getenv("OPENAI_API_KEY"),
         openai_primary_model=os.getenv("OPENAI_PRIMARY_MODEL", "gpt-5-mini"),
-        openai_fallback_model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-4.1-nano"),
+        openai_fallback_model=os.getenv("OPENAI_FALLBACK_MODEL", "gpt-6-luna"),
         elevenlabs_api_key=os.getenv("ELEVENLABS_API_KEY"),
         elevenlabs_voice_id=os.getenv("ELEVENLABS_VOICE_ID"),
         elevenlabs_model=os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2"),
